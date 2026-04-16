@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from pathlib import Path
+from time import perf_counter
 from typing import Literal, Optional
 
 from fastapi import FastAPI, Form, HTTPException
@@ -21,10 +22,12 @@ except Exception:
 
 from .conversation import rocky_reply_turn
 from .storage import append_log, delete_session_recordings, ensure_session_dirs, get_session_paths, new_session
+from .timing_log import get_timing_logger
 from .tts import synthesize_wav_bytes
 from .voices import Voice, get_voices, voice_by_id
 
 logger = logging.getLogger(__name__)
+_timing = get_timing_logger()
 
 app = FastAPI(title="OmniVoice Chat MVP", version="0.1.0")
 
@@ -77,6 +80,7 @@ def tts(body: TtsIn):
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    t0 = perf_counter()
     try:
         if voice.mode == "design":
             result = synthesize_wav_bytes(text=body.text, instruct=voice.instruct)
@@ -100,6 +104,15 @@ def tts(body: TtsIn):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS failed: {e}")
+    finally:
+        wall_ms = (perf_counter() - t0) * 1000.0
+        _timing.info(
+            "timing event=http_tts voice_id=%s mode=%s wall_ms=%.1f text_chars=%d",
+            body.voiceId,
+            voice.mode,
+            wall_ms,
+            len(body.text),
+        )
 
     return Response(content=result.wav_bytes, media_type="audio/wav")
 

@@ -4,10 +4,16 @@ import io
 import os
 import threading
 from dataclasses import dataclass
+from pathlib import Path
+from time import perf_counter
 from typing import Optional
 
 import numpy as np
 import soundfile as sf
+
+from .timing_log import get_timing_logger
+
+_timing = get_timing_logger()
 
 
 _model_lock = threading.Lock()
@@ -66,7 +72,15 @@ def get_model():
         if dtype is not None:
             kwargs["dtype"] = dtype
 
+        t0 = perf_counter()
         _model = OmniVoice.from_pretrained("k2-fsa/OmniVoice", **kwargs)
+        load_ms = (perf_counter() - t0) * 1000.0
+        _timing.info(
+            "timing event=omnivoice_model_load elapsed_ms=%.1f device=%s dtype=%s",
+            load_ms,
+            device,
+            str(dtype) if dtype is not None else "default",
+        )
         return _model
 
 
@@ -77,8 +91,11 @@ def synthesize_wav_bytes(
     ref_audio: Optional[str] = None,
     ref_text: Optional[str] = None,
 ) -> TtsResult:
+    t0 = perf_counter()
     model = get_model()
+    get_model_ms = (perf_counter() - t0) * 1000.0
 
+    t1 = perf_counter()
     with _generate_lock:
         audio_list = model.generate(
             text=text,
@@ -86,6 +103,7 @@ def synthesize_wav_bytes(
             ref_audio=ref_audio,
             ref_text=ref_text,
         )
+    generate_ms = (perf_counter() - t1) * 1000.0
 
     if not audio_list:
         raise RuntimeError("OmniVoice returned no audio")
@@ -93,7 +111,22 @@ def synthesize_wav_bytes(
     audio0 = np.asarray(audio_list[0], dtype=np.float32)
     sample_rate = 24000
 
+    t2 = perf_counter()
     buf = io.BytesIO()
     sf.write(buf, audio0, sample_rate, format="WAV")
-    return TtsResult(wav_bytes=buf.getvalue(), sample_rate=sample_rate)
+    wav_bytes = buf.getvalue()
+    encode_ms = (perf_counter() - t2) * 1000.0
+
+    ref_label = Path(ref_audio).name if ref_audio else "none"
+    _timing.info(
+        "timing event=omnivoice_synthesize get_model_ms=%.1f generate_ms=%.1f wav_encode_ms=%.1f "
+        "text_chars=%d ref_audio=%s wav_bytes=%d",
+        get_model_ms,
+        generate_ms,
+        encode_ms,
+        len(text),
+        ref_label,
+        len(wav_bytes),
+    )
+    return TtsResult(wav_bytes=wav_bytes, sample_rate=sample_rate)
 

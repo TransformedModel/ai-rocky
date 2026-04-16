@@ -4,12 +4,16 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 
 from .llm import chat_completion
 from .rocky_prompt import get_rocky_life_text, get_rocky_speech_style_text
 from .storage import SessionPaths, append_log, ensure_session_dirs, get_session_paths
+from .timing_log import get_timing_logger
 from .tts import synthesize_wav_bytes
 from .voices import voice_by_id
+
+_timing = get_timing_logger()
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,7 @@ async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
     LLM + Rocky TTS after the user line for this turn is already in the jsonl log.
     Builds chat messages as system + full prior from log (including current user).
     """
+    t0 = perf_counter()
     sp: SessionPaths = get_session_paths(session_id)
     ensure_session_dirs(sp)
     prior = prior_messages_from_log(sp)
@@ -74,11 +79,17 @@ async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
     user_text = str(prior[-1].get("content", "")).strip()
     if not user_text:
         raise ValueError("User message in log is empty")
+    setup_ms = (perf_counter() - t0) * 1000.0
 
-    messages = [{"role": "system", "content": _system_prompt()}]
+    t_build = perf_counter()
+    system_prompt = _system_prompt()
+    messages = [{"role": "system", "content": system_prompt}]
     messages.extend(prior)
+    build_prompt_ms = (perf_counter() - t_build) * 1000.0
 
+    t_llm = perf_counter()
     rocky_text = (await chat_completion(messages)).strip()
+    llm_ms = (perf_counter() - t_llm) * 1000.0
     if not rocky_text:
         rocky_text = "I didn't catch that. Can you say it again?"
 
@@ -95,12 +106,15 @@ async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
     if not rocky_voice.ref_audio or not rocky_voice.ref_text:
         raise RuntimeError("Rocky voice is not configured (missing ref_audio/ref_text)")
 
+    t_tts = perf_counter()
     wav = synthesize_wav_bytes(
         text=rocky_text,
         instruct=rocky_voice.instruct,
         ref_audio=str(rocky_voice.ref_audio),
         ref_text=rocky_voice.ref_text,
     )
+    t_after_tts = perf_counter()
+    tts_ms = (t_after_tts - t_tts) * 1000.0
 
     rocky_audio_path = sp.rocky_dir / f"rocky_turn_{turn_index:04d}.wav"
     rocky_audio_path.write_bytes(wav.wav_bytes)
@@ -128,6 +142,27 @@ async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
                 continue
             if evt.get("type") == "user" and evt.get("turn") == turn_index and evt.get("user_audio"):
                 last_user_audio = Path(evt["user_audio"])
+
+    t_end = perf_counter()
+    post_tts_ms = (t_end - t_after_tts) * 1000.0
+    total_ms = (t_end - t0) * 1000.0
+    _timing.info(
+        "timing event=rocky_reply_turn session_id=%s turn=%d setup_ms=%.1f build_prompt_ms=%.1f "
+        "llm_ms=%.1f tts_ms=%.1f post_tts_ms=%.1f total_ms=%.1f prior_msgs=%d system_chars=%d "
+        "user_chars=%d rocky_chars=%d",
+        session_id,
+        turn_index,
+        setup_ms,
+        build_prompt_ms,
+        llm_ms,
+        tts_ms,
+        post_tts_ms,
+        total_ms,
+        len(prior),
+        len(system_prompt),
+        len(user_text),
+        len(rocky_text),
+    )
 
     return TurnResult(
         user_text=user_text,
