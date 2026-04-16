@@ -91,6 +91,12 @@ def synthesize_wav_bytes(
     ref_audio: Optional[str] = None,
     ref_text: Optional[str] = None,
 ) -> TtsResult:
+    ref_label = Path(ref_audio).name if ref_audio else "none"
+    _timing.info(
+        "timing event=omnivoice_synthesize_begin text_chars=%d ref_audio=%s",
+        len(text),
+        ref_label,
+    )
     t0 = perf_counter()
     model = get_model()
     get_model_ms = (perf_counter() - t0) * 1000.0
@@ -117,9 +123,8 @@ def synthesize_wav_bytes(
     wav_bytes = buf.getvalue()
     encode_ms = (perf_counter() - t2) * 1000.0
 
-    ref_label = Path(ref_audio).name if ref_audio else "none"
     _timing.info(
-        "timing event=omnivoice_synthesize get_model_ms=%.1f generate_ms=%.1f wav_encode_ms=%.1f "
+        "timing event=omnivoice_synthesize_end get_model_ms=%.1f generate_ms=%.1f wav_encode_ms=%.1f "
         "text_chars=%d ref_audio=%s wav_bytes=%d",
         get_model_ms,
         generate_ms,

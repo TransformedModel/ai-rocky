@@ -9,6 +9,8 @@ Create `omnivoice-chat/backend/.env`:
 ```env
 OPENROUTER_API_KEY=your_key_here
 OPENROUTER_MODEL=openrouter/auto
+# Optional: how long to wait for the model to finish streaming a reply (default 120 seconds).
+OPENROUTER_READ_TIMEOUT=120
 ```
 
 ### Rocky persona (LLM)

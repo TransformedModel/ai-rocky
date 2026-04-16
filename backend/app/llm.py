@@ -23,6 +23,14 @@ def _model() -> str:
     return os.getenv("OPENROUTER_MODEL", "openrouter/auto")
 
 
+def _read_timeout_sec() -> float:
+    raw = os.getenv("OPENROUTER_READ_TIMEOUT", "120").strip()
+    try:
+        return max(30.0, float(raw))
+    except ValueError:
+        return 120.0
+
+
 class LlmError(RuntimeError):
     pass
 
@@ -46,17 +54,36 @@ async def chat_completion(messages: list[dict[str, Any]]) -> str:
         "temperature": 0.7,
     }
 
-    timeout = httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=10.0)
+    read_sec = _read_timeout_sec()
+    timeout = httpx.Timeout(connect=10.0, read=read_sec, write=60.0, pool=10.0)
     model_id = payload["model"]
     msg_count = len(messages)
+    _timing.info(
+        "timing event=openrouter_chat_begin model=%s messages=%d read_timeout_s=%.0f",
+        model_id,
+        msg_count,
+        read_sec,
+    )
     t0 = perf_counter()
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, headers=headers, json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+    except httpx.RequestError as e:
+        elapsed_ms = (perf_counter() - t0) * 1000.0
+        _timing.info(
+            "timing event=openrouter_chat_end model=%s messages=%d status=0 elapsed_ms=%.1f "
+            "ok=0 request_error=1 err=%s",
+            model_id,
+            msg_count,
+            elapsed_ms,
+            str(e)[:500],
+        )
+        raise LlmError(f"OpenRouter request failed: {e}") from e
     elapsed_ms = (perf_counter() - t0) * 1000.0
 
     if resp.status_code >= 400:
         _timing.info(
-            "timing event=openrouter_chat model=%s messages=%d status=%d elapsed_ms=%.1f ok=0",
+            "timing event=openrouter_chat_end model=%s messages=%d status=%d elapsed_ms=%.1f ok=0",
             model_id,
             msg_count,
             resp.status_code,
@@ -69,7 +96,7 @@ async def chat_completion(messages: list[dict[str, Any]]) -> str:
         content = data["choices"][0]["message"]["content"]
     except Exception as e:
         _timing.info(
-            "timing event=openrouter_chat model=%s messages=%d status=%d elapsed_ms=%.1f ok=0 parse_error=1",
+            "timing event=openrouter_chat_end model=%s messages=%d status=%d elapsed_ms=%.1f ok=0 parse_error=1",
             model_id,
             msg_count,
             resp.status_code,
@@ -78,7 +105,7 @@ async def chat_completion(messages: list[dict[str, Any]]) -> str:
         raise LlmError(f"Unexpected OpenRouter response: {e}; data={str(data)[:2000]}")
 
     _timing.info(
-        "timing event=openrouter_chat model=%s messages=%d status=%d elapsed_ms=%.1f "
+        "timing event=openrouter_chat_end model=%s messages=%d status=%d elapsed_ms=%.1f "
         "response_chars=%d ok=1",
         model_id,
         msg_count,

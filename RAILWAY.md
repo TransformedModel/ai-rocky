@@ -17,6 +17,7 @@ One **Docker** service serves the Vite build from `/` and the FastAPI API under 
 5. **Variables** (service → **Variables**), add at least:
    - `OPENROUTER_API_KEY` — your secret key.
    - Optional: `OPENROUTER_MODEL` (default in code is `openrouter/auto`).
+   - Optional: `OPENROUTER_READ_TIMEOUT` (seconds, default **120**) for slow OpenRouter responses; minimum enforced in code is 30.
    - Optional: `ROCKY_PROMPT_MAX_CHARS`, `OMNIVOICE_DEVICE` (`cpu` is implicit on Railway).
    - Optional: **`HF_TOKEN`** — Hugging Face token for higher Hub rate limits and faster model downloads (otherwise you may see “unauthenticated requests” in logs).
    - Optional: **`OMNIVOICE_WARM_START=1`** — only on **large** plans: preloads OmniVoice in a background thread at boot. **Do not** set this on small RAM tiers; see troubleshooting below.

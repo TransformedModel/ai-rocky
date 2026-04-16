@@ -162,13 +162,36 @@ async def conversation_reply_turn(
             },
         )
 
+    _timing.info(
+        "timing event=http_reply_turn_begin session_id=%s turn=%d typed_text=%s",
+        sessionId,
+        turn,
+        "yes" if typedText and typedText.strip() else "no",
+    )
+    t_reply = perf_counter()
     try:
         result = await rocky_reply_turn(session_id=sessionId, turn_index=turn)
     except HTTPException:
         raise
     except Exception as e:
+        wall_ms = (perf_counter() - t_reply) * 1000.0
+        _timing.info(
+            "timing event=http_reply_turn_error session_id=%s turn=%d elapsed_ms=%.1f err_type=%s err=%s",
+            sessionId,
+            turn,
+            wall_ms,
+            type(e).__name__,
+            str(e)[:800],
+        )
         append_log(sp, {"type": "turn_error", "turn": turn, "error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
+    else:
+        _timing.info(
+            "timing event=http_reply_turn_done session_id=%s turn=%d elapsed_ms=%.1f",
+            sessionId,
+            turn,
+            (perf_counter() - t_reply) * 1000.0,
+        )
 
     rocky_audio_url = f"/api/conversation/{sessionId}/recordings/{result.rocky_audio_path.name}"
     return ConversationTurnOut(
@@ -217,6 +240,7 @@ def _warm_start():
     On Railway, background warm start often OOMs small instances (torch + weights).
     Skip unless ``OMNIVOICE_WARM_START`` is set to a truthy value (``1`` / ``true`` / ``yes``).
     """
+    _timing.info("timing event=app_startup msg=look_for_timing_event_prefix_on_stderr")
     if _on_railway() and os.getenv("OMNIVOICE_WARM_START", "").strip().lower() not in (
         "1",
         "true",

@@ -70,6 +70,11 @@ async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
     LLM + Rocky TTS after the user line for this turn is already in the jsonl log.
     Builds chat messages as system + full prior from log (including current user).
     """
+    _timing.info(
+        "timing event=rocky_reply_turn_begin session_id=%s turn=%d",
+        session_id,
+        turn_index,
+    )
     t0 = perf_counter()
     sp: SessionPaths = get_session_paths(session_id)
     ensure_session_dirs(sp)
