@@ -1,0 +1,23 @@
+# Secrets (never commit)
+backend/.env
+.env
+.env.*
+
+# Python
+backend/.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Runtime session + logs (regenerated locally / on server)
+backend/data/
+
+# OS / editor
+.DS_Store
+.idea/
+
+# Tooling caches (if you add tests or stricter eslint later)
+.pytest_cache/
+.coverage
+frontend/.eslintcache
