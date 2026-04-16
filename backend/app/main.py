@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -23,6 +24,7 @@ from .storage import append_log, delete_session_recordings, ensure_session_dirs,
 from .tts import synthesize_wav_bytes
 from .voices import Voice, get_voices, voice_by_id
 
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OmniVoice Chat MVP", version="0.1.0")
 
@@ -191,9 +193,29 @@ if _frontend_dist:
         app.mount("/", StaticFiles(directory=str(_fd), html=True), name="frontend")
 
 
+def _on_railway() -> bool:
+    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+
+
 @app.on_event("startup")
 def _warm_start():
-    # Preload the model in the background so the server starts instantly.
+    """Preload OmniVoice in a daemon thread so HTTP comes up fast.
+
+    On Railway, background warm start often OOMs small instances (torch + weights).
+    Skip unless ``OMNIVOICE_WARM_START`` is set to a truthy value (``1`` / ``true`` / ``yes``).
+    """
+    if _on_railway() and os.getenv("OMNIVOICE_WARM_START", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    ):
+        logger.warning(
+            "Skipping OmniVoice warm start on Railway (avoids OOM during boot). "
+            "Set OMNIVOICE_WARM_START=1 only if the service has enough RAM (often 8 GB+). "
+            "First TTS/reply-turn will load weights and may take several minutes."
+        )
+        return
+
     def _load():
         try:
             from .tts import get_model
