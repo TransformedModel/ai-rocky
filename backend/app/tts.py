@@ -21,6 +21,23 @@ _generate_lock = threading.Lock()
 _model = None
 
 
+def _generation_num_step() -> int:
+    """Iterative decoding steps; lower is faster (default 16). Override with OMNIVOICE_NUM_STEP."""
+    try:
+        v = int(os.getenv("OMNIVOICE_NUM_STEP", "16"))
+        return max(1, min(v, 128))
+    except ValueError:
+        return 16
+
+
+def _generation_speed() -> float:
+    """Playback speed factor (<1.0 = slower/longer audio). Override with OMNIVOICE_SPEED."""
+    try:
+        return float(os.getenv("OMNIVOICE_SPEED", "0.8"))
+    except ValueError:
+        return 0.8
+
+
 @dataclass(frozen=True)
 class TtsResult:
     wav_bytes: bytes
@@ -92,10 +109,14 @@ def synthesize_wav_bytes(
     ref_text: Optional[str] = None,
 ) -> TtsResult:
     ref_label = Path(ref_audio).name if ref_audio else "none"
+    num_step = _generation_num_step()
+    speed = _generation_speed()
     _timing.info(
-        "timing event=omnivoice_synthesize_begin text_chars=%d ref_audio=%s",
+        "timing event=omnivoice_synthesize_begin text_chars=%d ref_audio=%s num_step=%d speed=%.3f",
         len(text),
         ref_label,
+        num_step,
+        speed,
     )
     t0 = perf_counter()
     model = get_model()
@@ -108,6 +129,8 @@ def synthesize_wav_bytes(
             instruct=instruct,
             ref_audio=ref_audio,
             ref_text=ref_text,
+            num_step=num_step,
+            speed=speed,
         )
     generate_ms = (perf_counter() - t1) * 1000.0
 
@@ -125,13 +148,15 @@ def synthesize_wav_bytes(
 
     _timing.info(
         "timing event=omnivoice_synthesize_end get_model_ms=%.1f generate_ms=%.1f wav_encode_ms=%.1f "
-        "text_chars=%d ref_audio=%s wav_bytes=%d",
+        "text_chars=%d ref_audio=%s wav_bytes=%d num_step=%d speed=%.3f",
         get_model_ms,
         generate_ms,
         encode_ms,
         len(text),
         ref_label,
         len(wav_bytes),
+        num_step,
+        speed,
     )
     return TtsResult(wav_bytes=wav_bytes, sample_rate=sample_rate)
 
