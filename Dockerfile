@@ -11,10 +11,6 @@ RUN npm run build
 
 FROM python:3.12-slim-bookworm
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg \
-  && rm -rf /var/lib/apt/lists/*
-
 ENV FRONTEND_DIST=/app/static
 COPY --from=frontend /src/frontend/dist /app/static
 

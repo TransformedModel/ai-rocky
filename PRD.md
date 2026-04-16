@@ -35,13 +35,13 @@
   - **`isArmingMic`**: true between tap and successful `MediaRecorder.start`; composer is read-only with placeholder “Listening…”. **Send** during arming shows a short “wait for mic” status instead of acting.
   - **Default language**: `navigator.language` with fallback `en-US`. Dictation is **not** guaranteed offline; privacy and quality depend on the browser/OS engine.
 - **Stop mic (does not send)**: Stopping the mic finalizes the blob, runs `finishAndGetTranscript()`, merges server dictation + live buffer into **`typedText`**, stores the clip in **pending** blob / object-URL refs for optional **Play** on send, and shows **“Review the text, then tap send when you’re ready.”** Short clips are rejected with an error status.
-- **Typing placeholders**: After stop, **“Finishing on-device dictation”** may show briefly (`awaitingDictationWrapup`). **“Transcribing on the server”** shows only when **`transcribe-turn`** runs (see send paths below).
+- **Typing placeholders**: After stop, **“Finishing on-device dictation”** may show briefly (`awaitingDictationWrapup`).
 
 ### User input: send and typed composer
 
 - **Send** posts turns using `frontend/src/conversationApi.ts`:
   - **With non-empty text** (typed or merged after mic stop): `POST /api/conversation/reply-turn` with `typedText`. If a **pending recording** exists, the user bubble gets the **blob `audioUrl`** for local playback while the server log for typed turns may omit `user_audio` (expected tradeoff).
-  - **With empty text but pending audio** (no dictation text): `POST /api/conversation/transcribe-turn` then `POST /api/conversation/reply-turn` without `typedText` (Whisper path).
+  - **With empty text but pending audio** (no dictation text): the client **does not** call the server; it sets a **status** line asking the user to type what they said and send again, and **keeps** the pending blob / preview URL.
 - **Send while still recording**: Automatically **stops the mic** (same finalize path as stop), then continues send with merged text and pending audio as above.
 - **Enter** in the composer submits the same as **Send**, except during **arming** (blocked).
 - **Optimistic UI**: When sending **with text**, the **user speech bubble** is appended **immediately** with the outgoing text (and optional local recording URL). **`reply-turn`** then updates that user line if the server returns different `userText`, appends **Rocky’s** bubble, and runs autoplay. On **`reply-turn` failure**, the optimistic **user** row is **removed** and the error is shown in the status line.
@@ -50,7 +50,7 @@
 ### Transcript display
 
 - Messages show **role** (`user` / `rocky`) and **turn** index.
-- **User text** comes from the optimistic string, dictation merge, Whisper `userText`, or server-echoed `userText` on `reply-turn`.
+- **User text** comes from the optimistic string, dictation merge, or server-echoed `userText` on `reply-turn`.
 
 ### Audio playback and downloads
 
@@ -61,13 +61,13 @@
 ### Error handling
 
 - Client surfaces backend error strings when present.
-- Common failures: missing **`OPENROUTER_API_KEY`**, missing **`ffmpeg`** on the server when **Whisper** runs, OmniVoice / CUDA / memory issues on small hosts.
+- Common failures: missing **`OPENROUTER_API_KEY`**, OmniVoice / CUDA / memory issues on small hosts.
 
 ## Open questions (from code inspection)
 
 - **Autoplay**: Best-effort only; not fully verified across all browsers.
 - **`audio/webm`**: Not all browsers support this `MediaRecorder` MIME type.
-- **Dictation**: Web Speech coverage and quality vary; Whisper fallback remains required. **Embedded or non-standard browsers** (for example some in-IDE browsers) may not expose speech APIs; **desktop Safari and Chrome** are the tested happy path.
+- **Dictation**: Web Speech coverage and quality vary; without dictation text the user must **type** before send. **Embedded or non-standard browsers** (for example some in-IDE browsers) may not expose speech APIs; **desktop Safari and Chrome** are the tested happy path.
 - **End session UX**: Exposing `POST /api/conversation/end` in the UI is a possible follow-up.
 
 ## Technical architecture
@@ -75,10 +75,8 @@
 ```mermaid
 flowchart TD
   BrowserUI["Browser UI (Vite + React)"] -->|"POST /api/conversation/start"| BackendAPI["FastAPI backend"]
-  BrowserUI -->|"POST transcribe-turn (audio) when needed"| BackendAPI
-  BrowserUI -->|"POST reply-turn (typedText optional)"| BackendAPI
+  BrowserUI -->|"POST reply-turn (typedText)"| BackendAPI
   BrowserUI -.->|Web Speech API live + finalize| OnDeviceSTT["Browser dictation"]
-  BackendAPI -->|"Whisper + ffmpeg on transcribe-turn"| WhisperSTT["Server STT"]
   BackendAPI -->|"Chat completion (OpenRouter)"| OpenRouter["OpenRouter API"]
   BackendAPI -->|"TTS (OmniVoice) using Rocky ref"| OmniVoice["OmniVoice model"]
   OmniVoice -->|"WAV bytes"| BackendAPI
@@ -94,7 +92,7 @@ flowchart TD
 - Stack: **Vite + React** (`frontend/package.json`).
 - Dev: Vite proxy **`/api` → `http://localhost:8001`** (`frontend/vite.config.ts`); production builds use **same-origin** `/api` when the API serves the SPA (see **Hosting**).
 - Main UI: `frontend/src/App.tsx`.
-- API: `frontend/src/conversationApi.ts` (`start`, `transcribe-turn`, `reply-turn`).
+- API: `frontend/src/conversationApi.ts` (`start`, `reply-turn`).
 - Dictation helper: `frontend/src/speechDictation.ts`.
 
 ### Backend
@@ -102,7 +100,7 @@ flowchart TD
 - Stack: **FastAPI** (`backend/app/main.py`).
 - **Optional static SPA**: If **`FRONTEND_DIST`** points at a directory (for example the Vite `dist` copied in Docker), the app mounts **`StaticFiles(..., html=True)`** at `/` so one process serves UI + API.
 - **Session storage**: `backend/data/sessions/{sessionId}/`, logs in `backend/data/logs/{sessionId}.jsonl` (runtime data; not committed to git by default).
-- **STT**: Whisper in `transcribe_user_audio_turn` / `stt.py`; requires **`ffmpeg`** on the host when Whisper runs.
+- **STT**: None on the server. Legacy **`POST /api/conversation/transcribe-turn`**, **`POST /api/conversation/turn`**, and **`/api/stt`** are removed.
 - **LLM**: OpenRouter (`llm.py`, `OPENROUTER_MODEL`, `OPENROUTER_API_KEY`).
 - **TTS**: OmniVoice (`tts.py`, `voices.py`).
 

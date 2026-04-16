@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -18,8 +18,7 @@ try:
 except Exception:
     pass
 
-from .conversation import prior_messages_from_log, rocky_reply_turn, run_turn, transcribe_user_audio_turn
-from .api_stt import router as stt_router
+from .conversation import rocky_reply_turn
 from .storage import append_log, delete_session_recordings, ensure_session_dirs, get_session_paths, new_session
 from .tts import synthesize_wav_bytes
 from .voices import Voice, get_voices, voice_by_id
@@ -34,8 +33,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.include_router(stt_router)
 
 
 class VoiceOut(BaseModel):
@@ -121,109 +118,12 @@ class ConversationTurnOut(BaseModel):
     rockyAudioUrl: str
 
 
-class ConversationTranscribeOut(BaseModel):
-    sessionId: str
-    turn: int
-    userText: str
-
-
 @app.post("/api/conversation/start", response_model=ConversationStartOut)
 def conversation_start():
     sp = new_session()
     ensure_session_dirs(sp)
     append_log(sp, {"type": "session_start", "session": sp.session_id})
     return ConversationStartOut(sessionId=sp.session_id)
-
-
-@app.post("/api/conversation/turn", response_model=ConversationTurnOut)
-async def conversation_turn(
-    sessionId: str = Form(...),
-    turn: int = Form(...),
-    typedText: Optional[str] = Form(None),
-    audio: Optional[UploadFile] = File(None),
-):
-    sp = get_session_paths(sessionId)
-    ensure_session_dirs(sp)
-
-    user_audio_path: Path | None = None
-    if audio is not None:
-        suffix = Path(audio.filename or "user.webm").suffix or ".webm"
-        user_audio_path = sp.user_dir / f"user_turn_{turn:04d}{suffix}"
-        user_audio_path.write_bytes(await audio.read())
-        append_log(
-            sp,
-            {
-                "type": "recording",
-                "turn": turn,
-                "user_audio": str(user_audio_path),
-                "content_type": audio.content_type,
-            },
-        )
-
-    prior = prior_messages_from_log(sp)
-
-    try:
-        result = await run_turn(
-            session_id=sessionId,
-            user_audio_path=user_audio_path,
-            typed_text=typedText,
-            turn_index=turn,
-            prior_messages=prior,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Surface the underlying error to the client for easier debugging
-        # (common causes: missing OPENROUTER_API_KEY, Whisper/ffmpeg decode failures).
-        append_log(sp, {"type": "turn_error", "turn": turn, "error": str(e)})
-        raise HTTPException(status_code=500, detail=str(e))
-
-    rocky_audio_url = f"/api/conversation/{sessionId}/recordings/{result.rocky_audio_path.name}"
-    return ConversationTurnOut(
-        sessionId=sessionId,
-        turn=turn,
-        userText=result.user_text,
-        rockyText=result.rocky_text,
-        rockyAudioUrl=rocky_audio_url,
-    )
-
-
-@app.post("/api/conversation/transcribe-turn", response_model=ConversationTranscribeOut)
-async def conversation_transcribe_turn(
-    sessionId: str = Form(...),
-    turn: int = Form(...),
-    audio: UploadFile = File(...),
-):
-    """Save mic audio, run Whisper only, append user line to log. Call reply-turn next."""
-    sp = get_session_paths(sessionId)
-    ensure_session_dirs(sp)
-
-    suffix = Path(audio.filename or "user.webm").suffix or ".webm"
-    user_audio_path = sp.user_dir / f"user_turn_{turn:04d}{suffix}"
-    user_audio_path.write_bytes(await audio.read())
-    append_log(
-        sp,
-        {
-            "type": "recording",
-            "turn": turn,
-            "user_audio": str(user_audio_path),
-            "content_type": audio.content_type,
-        },
-    )
-
-    try:
-        user_text = transcribe_user_audio_turn(
-            session_id=sessionId,
-            turn_index=turn,
-            user_audio_path=user_audio_path,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        append_log(sp, {"type": "turn_error", "turn": turn, "error": str(e)})
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return ConversationTranscribeOut(sessionId=sessionId, turn=turn, userText=user_text)
 
 
 @app.post("/api/conversation/reply-turn", response_model=ConversationTurnOut)

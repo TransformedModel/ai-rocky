@@ -8,7 +8,6 @@ from pathlib import Path
 from .llm import chat_completion
 from .rocky_prompt import get_rocky_life_text, get_rocky_speech_style_text
 from .storage import SessionPaths, append_log, ensure_session_dirs, get_session_paths
-from .stt import transcribe_file
 from .tts import synthesize_wav_bytes
 from .voices import voice_by_id
 
@@ -60,23 +59,6 @@ def _system_prompt() -> str:
     if speech:
         blocks.append("## How Rocky writes and speaks (dialogue)\n" + speech)
     return "\n\n".join(blocks)
-
-
-def transcribe_user_audio_turn(*, session_id: str, turn_index: int, user_audio_path: Path) -> str:
-    """STT only; logs the user line. Caller must have saved the audio file and optional recording log."""
-    sp: SessionPaths = get_session_paths(session_id)
-    ensure_session_dirs(sp)
-    user_text = transcribe_file(user_audio_path).text
-    append_log(
-        sp,
-        {
-            "type": "user",
-            "turn": turn_index,
-            "text": user_text,
-            "user_audio": str(user_audio_path),
-        },
-    )
-    return user_text
 
 
 async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
@@ -151,87 +133,6 @@ async def rocky_reply_turn(*, session_id: str, turn_index: int) -> TurnResult:
         user_text=user_text,
         rocky_text=rocky_text,
         user_audio_path=last_user_audio if last_user_audio and last_user_audio.exists() else None,
-        rocky_audio_path=rocky_audio_path,
-        rocky_wav_bytes=wav.wav_bytes,
-    )
-
-
-async def run_turn(
-    *,
-    session_id: str,
-    user_audio_path: Path | None,
-    typed_text: str | None,
-    turn_index: int,
-    prior_messages: list[dict],
-) -> TurnResult:
-    """Single-request turn (legacy). Prefer transcribe + reply split for UI that shows STT progress."""
-    sp: SessionPaths = get_session_paths(session_id)
-    ensure_session_dirs(sp)
-
-    if typed_text and typed_text.strip():
-        user_text = typed_text.strip()
-    elif user_audio_path:
-        user_text = transcribe_file(user_audio_path).text
-    else:
-        raise ValueError("Missing user input (audio or text)")
-
-    append_log(
-        sp,
-        {
-            "type": "user",
-            "turn": turn_index,
-            "text": user_text,
-            "user_audio": str(user_audio_path) if user_audio_path else None,
-        },
-    )
-
-    messages = [{"role": "system", "content": _system_prompt()}]
-    messages.extend(prior_messages)
-    messages.append({"role": "user", "content": user_text})
-
-    rocky_text = (await chat_completion(messages)).strip()
-    if not rocky_text:
-        rocky_text = "I didn't catch that. Can you say it again?"
-
-    append_log(
-        sp,
-        {
-            "type": "rocky",
-            "turn": turn_index,
-            "text": rocky_text,
-        },
-    )
-
-    rocky_voice = voice_by_id("rocky")
-    if not rocky_voice.ref_audio or not rocky_voice.ref_text:
-        raise RuntimeError("Rocky voice is not configured (missing ref_audio/ref_text)")
-
-    wav = synthesize_wav_bytes(
-        text=rocky_text,
-        instruct=rocky_voice.instruct,
-        ref_audio=str(rocky_voice.ref_audio),
-        ref_text=rocky_voice.ref_text,
-    )
-
-    rocky_audio_path = sp.rocky_dir / f"rocky_turn_{turn_index:04d}.wav"
-    rocky_audio_path.write_bytes(wav.wav_bytes)
-
-    append_log(
-        sp,
-        {
-            "type": "recording",
-            "turn": turn_index,
-            "rocky_audio": str(rocky_audio_path),
-            "sample_rate": wav.sample_rate,
-            "bytes": len(wav.wav_bytes),
-            "ts": time.time(),
-        },
-    )
-
-    return TurnResult(
-        user_text=user_text,
-        rocky_text=rocky_text,
-        user_audio_path=user_audio_path,
         rocky_audio_path=rocky_audio_path,
         rocky_wav_bytes=wav.wav_bytes,
     )

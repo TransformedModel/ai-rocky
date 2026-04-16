@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import './App.css'
-import { replyTurn, startConversation, transcribeTurn } from './conversationApi'
+import { replyTurn, startConversation } from './conversationApi'
 import {
   isBrowserDictationAvailable,
   startDictationSession,
@@ -139,7 +139,6 @@ function App() {
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const [status, setStatus] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
-  const [awaitingUserTranscribe, setAwaitingUserTranscribe] = useState(false)
   const [awaitingDictationWrapup, setAwaitingDictationWrapup] = useState(false)
   const [awaitingRocky, setAwaitingRocky] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -178,7 +177,7 @@ function App() {
 
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, awaitingRocky, awaitingUserTranscribe, awaitingDictationWrapup])
+  }, [messages, awaitingRocky, awaitingDictationWrapup])
 
   async function ensureSessionId(): Promise<string> {
     if (sessionIdRef.current) return sessionIdRef.current
@@ -346,6 +345,13 @@ function App() {
       return
     }
 
+    if (!text && pendingBlob) {
+      setStatus(
+        'Type what you said, then tap send again. Your recording stays attached. On desktop, Chrome and Safari give the smoothest dictation into this box.',
+      )
+      return
+    }
+
     const pendingUrl = pendingRecordingUrlRef.current
     const userAudioUrl: string | undefined = pendingUrl ?? undefined
 
@@ -392,47 +398,8 @@ function App() {
         }
 
         setTurn((t) => t + 1)
-        return
       }
-
-      setAwaitingUserTranscribe(true)
-      setAwaitingRocky(false)
-      setStatus('Transcribing on server…')
-
-      const tr = await transcribeTurn({
-        sessionId: sid,
-        turn: sendTurn,
-        audioBlob: pendingBlob!,
-        audioFilename: `user_turn_${String(sendTurn).padStart(4, '0')}.webm`,
-      })
-
-      setAwaitingUserTranscribe(false)
-      setAwaitingRocky(true)
-      setStatus('Rocky is thinking…')
-
-      const res = await replyTurn({ sessionId: sid, turn: sendTurn })
-
-      clearPendingRecordingRefsOnly()
-      setTypedText('')
-      setMessages((m) => [
-        ...m,
-        { role: 'user', text: tr.userText, turn: tr.turn, audioUrl: userAudioUrl },
-        { role: 'rocky', text: res.rockyText, turn: res.turn, audioUrl: res.rockyAudioUrl },
-      ])
-
-      if (!autoPlayedTurnsRef.current.has(res.turn)) {
-        autoPlayedTurnsRef.current.add(res.turn)
-        try {
-          await playOnce(res.rockyAudioUrl)
-          setStatus('')
-        } catch {
-          setStatus('Tap play on Rocky’s message if you don’t hear audio.')
-        }
-      }
-
-      setTurn((t) => t + 1)
     } catch (e: any) {
-      setAwaitingUserTranscribe(false)
       if (optimisticUserAdded) {
         setMessages((m) => {
           const last = m[m.length - 1]
@@ -586,14 +553,8 @@ function App() {
             ),
           )}
 
-          {awaitingUserTranscribe || awaitingDictationWrapup ? (
-            <TypingBubbleUser
-              label={
-                awaitingDictationWrapup
-                  ? 'Finishing on-device dictation'
-                  : 'Transcribing your message on the server'
-              }
-            />
+          {awaitingDictationWrapup ? (
+            <TypingBubbleUser label="Finishing on-device dictation" />
           ) : null}
           {awaitingRocky ? <TypingBubbleRocky /> : null}
           <div ref={listEndRef} className="listAnchor" />

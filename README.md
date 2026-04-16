@@ -24,19 +24,13 @@ The system prompt also states up front that this Rocky is the Eridian from *Proj
 
 OmniVoice still clones timbre from `assets/voices/Rocky-1.wav` and its reference transcript; a short optional `instruct` tag is also passed for Rocky at TTS time.
 
-### Install `ffmpeg` (required for speech-to-text)
+### Speech input (no server STT)
 
-User audio is uploaded as `webm/opus` from the browser. Local Whisper needs `ffmpeg` to decode it.
-
-```bash
-brew install ffmpeg
-```
-
-You only hit Whisper when **browser dictation** is missing or returns nothing after a voice turn; typed-only turns never need `ffmpeg`.
+The backend does **not** run Whisper or other server-side transcription. **Web Speech dictation** plus typing fill the composer; if dictation is empty after a mic take, the UI asks you to **type what you said** and send again while keeping the pending clip for playback on the user bubble.
 
 ### Browser dictation (Web Speech API)
 
-Voice turns try **on-device dictation** first (`SpeechRecognition` / `webkitSpeechRecognition`). That avoids uploading audio for STT when it works, so turns feel faster.
+Voice turns use **on-device dictation** in parallel with the recorder (`SpeechRecognition` / `webkitSpeechRecognition`) when the browser exposes it.
 
 - Support varies: Chromium-based browsers usually work; Safari differs; Firefox support is spotty.
 - Dictation is **not** always offline. The engine may send audio to the OS or browser vendor; treat it like any cloud-adjacent speech feature for privacy expectations.
@@ -45,7 +39,7 @@ Voice turns try **on-device dictation** first (`SpeechRecognition` / `webkitSpee
 
 Step-by-step deploy (Docker, one public URL, same-origin `/api`) is in [`RAILWAY.md`](RAILWAY.md).
 
-OmniVoice TTS is **CPU-heavy** on Railway; use enough **RAM** for the model and expect slower speech than on a local GPU. Browser dictation still skips server STT when it works in the user’s browser.
+OmniVoice TTS is **CPU-heavy** on Railway; use enough **RAM** for the model and expect slower speech than on a local GPU. There is no server-side STT in this stack; dictation quality depends on the user’s browser.
 
 ### Run
 

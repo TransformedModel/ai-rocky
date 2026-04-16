@@ -18,7 +18,7 @@ One **Docker** service serves the Vite build from `/` and the FastAPI API under 
    - `OPENROUTER_API_KEY` — your secret key.
    - Optional: `OPENROUTER_MODEL` (default in code is `openrouter/auto`).
    - Optional: `ROCKY_PROMPT_MAX_CHARS`, `OMNIVOICE_DEVICE` (`cpu` is implicit on Railway).
-6. **Resources**: OmniVoice + Whisper are heavy. Use a plan with **enough RAM** (often **≥ 8 GB** for a comfortable first boot; CPU-only TTS will still be slow compared to a local GPU).
+6. **Resources**: OmniVoice (torch) is heavy. Use a plan with **enough RAM** (often **≥ 8 GB** for a comfortable first boot; CPU-only TTS will still be slow compared to a local GPU).
 7. **Networking**: Generate a **public domain** (Settings → Networking → Generate domain). Open that URL in a normal browser (not the Cursor embedded browser if you rely on Web Speech dictation).
 8. **Health check**: `railway.toml` points at `GET /api/health`. After deploy, confirm it returns 200 in the Railway metrics / browser.
 9. **Logs**: Watch deploy logs for `pip` / model download errors. First TTS request may take a long time while weights load.
