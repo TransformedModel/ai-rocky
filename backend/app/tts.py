@@ -11,7 +11,7 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 
-from .timing_log import get_timing_logger
+from . import get_timing_logger
 
 _timing = get_timing_logger()
 

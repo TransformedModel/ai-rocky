@@ -22,7 +22,7 @@ except Exception:
 
 from .conversation import rocky_reply_turn
 from .storage import append_log, delete_session_recordings, ensure_session_dirs, get_session_paths, new_session
-from .timing_log import get_timing_logger
+from . import get_timing_logger
 from .tts import synthesize_wav_bytes
 from .voices import Voice, get_voices, voice_by_id
 

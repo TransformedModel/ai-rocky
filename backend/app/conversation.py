@@ -9,7 +9,7 @@ from time import perf_counter
 from .llm import chat_completion
 from .rocky_prompt import get_rocky_life_text, get_rocky_speech_style_text
 from .storage import SessionPaths, append_log, ensure_session_dirs, get_session_paths
-from .timing_log import get_timing_logger
+from . import get_timing_logger
 from .tts import synthesize_wav_bytes
 from .voices import voice_by_id
 

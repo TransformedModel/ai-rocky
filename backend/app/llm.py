@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from .timing_log import get_timing_logger
+from . import get_timing_logger
 
 _timing = get_timing_logger()
 
