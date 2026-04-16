@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import threading
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -191,16 +190,20 @@ if _frontend_dist:
         app.mount("/", StaticFiles(directory=str(_fd), html=True), name="frontend")
 
 
-@app.on_event("startup")
-def _warm_start():
-    # Preload the model in the background so the server starts instantly.
-    def _load():
-        try:
-            from .tts import get_model
-
-            get_model()
-        except Exception:
-            pass
-
-    threading.Thread(target=_load, daemon=True).start()
+# NOTE: Startup model preloading disabled to prevent OOM kills on containers
+# with limited memory (≤1 GB). The OmniVoice model will be loaded lazily on
+# the first TTS request instead of eagerly at boot time.
+#
+# @app.on_event("startup")
+# def _warm_start():
+#     # Preload the model in the background so the server starts instantly.
+#     def _load():
+#         try:
+#             from .tts import get_model
+#
+#             get_model()
+#         except Exception:
+#             pass
+#
+#     threading.Thread(target=_load, daemon=True).start()
 
